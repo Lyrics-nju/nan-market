@@ -1,0 +1,28 @@
+# AI 社群情报控制台 — 配置模板
+# 复制此文件为 config.yaml 并填写你的配置
+
+admin_key: ''  # 构建时自动生成，或手动填写
+
+feishu_sync:
+  enable: false
+  node_name: 默认节点
+  webhook_url: ''
+
+llm:
+  api_key: ''
+  base_url: https://api.deepseek.com
+  model: deepseek-v4-pro
+
+mothership:
+  url: ''
+  node_name: ''
+
+napcat:
+  group_ids: []
+  webui_token: ''
+  webui_url: http://127.0.0.1:6099
+  ws_url: ws://127.0.0.1:3001
+
+scraper:
+  mode: realtime
+  poll_interval: 2

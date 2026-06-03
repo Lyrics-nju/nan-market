@@ -1,0 +1,89 @@
+# ── Python ──────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+venv/
+.venv/
+python_embed/
+_cache/
+*.egg-info/
+/dist/
+/build/
+*.egg
+
+# ── Node.js ────────────────────────────────────────────
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# ── NapCat Portable (320MB, not suitable for git) ──────
+NapCat_Portable/
+napcat/
+
+# ── Build output ───────────────────────────────────────
+dist_output/
+dist_output_v2/
+dist_output_exe/
+_build_pyinstaller/
+installer_output/
+
+# ── Database files ─────────────────────────────────────
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# ── Config with secrets ────────────────────────────────
+backend/config.yaml
+config.yaml
+.env
+.env.local
+.env.production
+
+# ── Logs ────────────────────────────────────────────────
+*.log
+api.log
+scraper.log
+login_debug.log
+
+# ── IDE ─────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ── OS ──────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── Backups ─────────────────────────────────────────────
+backup_*/
+
+# ── Dev scripts (not for distribution) ─────────────────
+start_all.ps1
+start_dev_mother.bat
+precise_fix.py
+get_guilds.py
+get_guilds_ws.py
+
+# ── Runtime data ────────────────────────────────────────
+data/
+
+# ── Vercel ──────────────────────────────────────────────
+.vercel/
+
+# ── But keep these ──────────────────────────────────────
+!frontend/dist/
+!backend/requirements.txt
+!backend/scraper.py
+!backend/api.py
+!build_dist.py
+!build_exe.py
+!fetch_napcat.py
+!launcher.py

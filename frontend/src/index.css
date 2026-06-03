@@ -1,0 +1,146 @@
+@import "tailwindcss";
+
+/* ── 赛博深色色彩系统（默认主题）─────────────────────── */
+:root, [data-theme="cyber"] {
+  --bg-deep:    #000000;
+  --bg-surface: #050509;
+  --bg-glass:   rgba(255, 255, 255, 0.03);
+  --border:     rgba(255, 255, 255, 0.06);
+
+  --neon-cyan:   #00F2FF;
+  --neon-purple: #BB00FF;
+  --neon-green:  #ADFF00;
+  --neon-orange: #FF5C00;
+
+  --text-primary:   #E0E0E0;
+  --text-secondary: #6B6B6B;
+  --text-dim:       #3A3A3A;
+}
+
+/* ── 经典暗色主题 ────────────────────────────────────── */
+[data-theme="classic"] {
+  --bg-deep:    #111111;
+  --bg-surface: #1a1a1a;
+  --bg-glass:   rgba(255, 255, 255, 0.04);
+  --border:     rgba(255, 255, 255, 0.08);
+
+  --neon-cyan:   #818CF8;
+  --neon-purple: #A78BFA;
+  --neon-green:  #34D399;
+  --neon-orange: #FB923C;
+
+  --text-primary:   #D1D5DB;
+  --text-secondary: #9CA3AF;
+  --text-dim:       #4B5563;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body {
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  font-size: 15px;
+  background: linear-gradient(180deg, var(--bg-deep) 0%, var(--bg-surface) 100%);
+  color: var(--text-primary);
+  overflow-x: hidden;
+}
+
+#root { height: 100%; }
+
+/* ── 滚动条 ──────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--neon-cyan); }
+
+/* ── 滚动条样式已移至上方 ── */
+
+/* ── 动画 ────────────────────────────────────────────── */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slideIn {
+  from { opacity: 0; transform: translateX(-12px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes scaleIn {
+  from { opacity: 0; transform: scale(0.95); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+@keyframes pulse-glow-purple {
+  0%, 100% { box-shadow: -3px 0 12px rgba(187, 0, 255, 0.3); }
+  50%      { box-shadow: -3px 0 24px rgba(187, 0, 255, 0.6); }
+}
+@keyframes pulse-glow-green {
+  0%, 100% { box-shadow: -3px 0 12px rgba(173, 255, 0, 0.3); }
+  50%      { box-shadow: -3px 0 24px rgba(173, 255, 0, 0.6); }
+}
+@keyframes pulse-glow-orange {
+  0%, 100% { box-shadow: -3px 0 12px rgba(255, 92, 0, 0.3); }
+  50%      { box-shadow: -3px 0 24px rgba(255, 92, 0, 0.6); }
+}
+@keyframes pulse-glow-cyan {
+  0%, 100% { box-shadow: 0 0 15px rgba(0, 242, 255, 0.2); }
+  50%      { box-shadow: 0 0 30px rgba(0, 242, 255, 0.4); }
+}
+
+@keyframes scan-line {
+  0%   { top: -2px; opacity: 1; }
+  100% { top: 100%; opacity: 0.3; }
+}
+
+@keyframes breathe {
+  0%, 100% { box-shadow: 0 0 8px rgba(0, 242, 255, 0.08), inset 0 0 8px rgba(0, 242, 255, 0.02); }
+  50%      { box-shadow: 0 0 20px rgba(0, 242, 255, 0.2), inset 0 0 20px rgba(0, 242, 255, 0.05); }
+}
+
+.animate-fade-in { animation: fadeIn 0.4s ease-out forwards; }
+.animate-slide-in { animation: slideIn 0.3s ease-out forwards; }
+.animate-scale-in { animation: scaleIn 0.25s ease-out forwards; }
+.animate-pulse-glow-purple  { animation: pulse-glow-purple 2.5s ease-in-out infinite; }
+.animate-pulse-glow-green   { animation: pulse-glow-green 2.5s ease-in-out infinite; }
+.animate-pulse-glow-orange  { animation: pulse-glow-orange 2.5s ease-in-out infinite; }
+.animate-pulse-glow-cyan    { animation: pulse-glow-cyan 2s ease-in-out infinite; }
+
+/* ── 玻璃拟态工具类 ──────────────────────────────────── */
+.glass {
+  background: var(--bg-glass);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--border);
+}
+
+.glass-hover:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+/* ── 终端风格字体 ────────────────────────────────────── */
+.font-mono {
+  font-family: 'JetBrains Mono', 'Fira Code', 'SF Mono', 'Cascadia Code', monospace;
+}
+
+/* ── 模态框遮罩 ─────────────────────────────────────── */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(4px);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ── 页面切换 ───────────────────────────────────────── */
+.page-enter {
+  animation: fadeIn 0.3s ease-out;
+}

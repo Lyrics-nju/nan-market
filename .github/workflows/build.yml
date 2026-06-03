@@ -1,0 +1,62 @@
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
+
+      - name: Install Python dependencies
+        run: pip install pyyaml pyinstaller
+
+      - name: Install venv dependencies
+        working-directory: backend
+        run: |
+          python -m venv venv
+          .\venv\Scripts\pip install -r requirements.txt
+          .\venv\Scripts\pip install pyinstaller
+
+      - name: Build EXE package
+        run: python build_exe.py
+        timeout-minutes: 30
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist_output_exe/AI_Console_EXE.zip
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

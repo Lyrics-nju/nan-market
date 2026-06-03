@@ -1,0 +1,591 @@
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { Key, Zap, QrCode, CheckCircle, Loader2, AlertCircle, Eye, EyeOff, LogIn, Monitor, Tablet, Smartphone } from 'lucide-react';
+
+interface LoginStatus {
+  status: 'idle' | 'waiting_scan' | 'scanned' | 'logged_in' | 'offline';
+  nickname?: string;
+  uin?: string;
+  ws_config_fixed?: boolean;
+  warning?: string;
+}
+
+type LoginMethod = 'qr' | 'password';
+type Platform = 'Android' | 'iPad' | 'Windows';
+
+const PLATFORMS: { key: Platform; label: string; icon: typeof Monitor; desc: string }[] = [
+  { key: 'Windows', label: 'Windows', icon: Monitor, desc: '挤掉电脑端' },
+  { key: 'iPad', label: 'iPad', icon: Tablet, desc: '可与电脑同时在线' },
+  { key: 'Android', label: 'Android', icon: Smartphone, desc: '可与电脑同时在线' },
+];
+
+function getSavedPlatform(): Platform {
+  try { return (localStorage.getItem('loginPlatform') as Platform) || 'iPad'; } catch { return 'iPad'; }
+}
+
+export default function LoginPage() {
+  const navigate = useNavigate();
+
+  const [apiKey, setApiKey] = useState('');
+  const [baseUrl, setBaseUrl] = useState('https://api.openai.com/v1');
+  const [model, setModel] = useState('gpt-4o-mini');
+  const [mothershipUrl, setMothershipUrl] = useState('');
+  const [nodeName, setNodeName] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [configSaved, setConfigSaved] = useState(false);
+
+  const [qrCode, setQrCode] = useState<string | null>(null);
+  const [qrFormat, setQrFormat] = useState<'png' | 'svg' | 'url'>('url');
+  const [qrLoading, setQrLoading] = useState(false);
+  const [loginStatus, setLoginStatus] = useState<LoginStatus>({ status: 'idle' });
+  const [polling, setPolling] = useState(false);
+  const [qrRefreshKey, setQrRefreshKey] = useState(0);
+
+  // 密码登录状态
+  const [loginMethod, setLoginMethod] = useState<LoginMethod>('qr');
+  const [platform, setPlatform] = useState<Platform>(getSavedPlatform);
+  const [qqUin, setQqUin] = useState('');
+  const [qqPassword, setQqPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [passwordLogging, setPasswordLogging] = useState(false);
+  const [passwordError, setPasswordError] = useState('');
+  const [passwordSuccess, setPasswordSuccess] = useState('');
+
+  const prevStatusRef = useRef<LoginStatus['status']>('idle');
+
+  const handleSaveConfig = useCallback(async () => {
+    if (!apiKey.trim()) return;
+    setSaving(true);
+    try {
+      const res = await fetch('/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ llm_api_key: apiKey, llm_base_url: baseUrl, llm_model: model, mothership_url: mothershipUrl, node_name: nodeName }),
+      });
+      if (res.ok) setConfigSaved(true);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setSaving(false);
+    }
+  }, [apiKey, baseUrl, model, mothershipUrl, nodeName]);
+
+  const fetchQrCode = useCallback(async () => {
+    setQrLoading(true);
+    try {
+      const pngRes = await fetch(`/api/qrcode?t=${Date.now()}`);
+      if (pngRes.status === 503) {
+        setQrLoading(false);
+        setTimeout(() => fetchQrCode(), 5000);
+        return;
+      }
+      if (pngRes.ok) {
+        setQrCode(prev => {
+          if (prev && prev.startsWith('blob:')) URL.revokeObjectURL(prev);
+          return prev;
+        });
+        const blob = await pngRes.blob();
+        const url = URL.createObjectURL(blob);
+        setQrCode(url);
+        setQrFormat('url');
+        setPolling(true);
+        setQrRefreshKey(k => k + 1);
+        setQrLoading(false);
+        return;
+      }
+    } catch {}
+    try {
+      const res = await fetch('/api/login/qrcode');
+      const data = await res.json();
+      if (data.qrcode) {
+        setQrCode(data.qrcode);
+        setQrFormat(data.format || 'svg');
+        setPolling(true);
+        setQrRefreshKey(k => k + 1);
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setQrLoading(false);
+    }
+  }, []);
+
+  // 密码登录
+  const handlePasswordLogin = useCallback(async () => {
+    if (!qqUin.trim() || !qqPassword.trim()) {
+      setPasswordError('请填写 QQ 号和密码');
+      return;
+    }
+    setPasswordLogging(true);
+    setPasswordError('');
+    setPasswordSuccess('');
+    try {
+      const res = await fetch('/api/login/password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uin: qqUin.trim(), password: qqPassword }),
+      });
+      const data = await res.json();
+      if (data.status === 'ok') {
+        setPasswordSuccess('登录请求已发送，正在等待验证...');
+        setPolling(true); // 开始轮询登录状态
+      } else if (data.status === 'need_captcha') {
+        setPasswordError('需要人机验证，请改用扫码登录');
+      } else {
+        setPasswordError(data.message || '登录失败');
+      }
+    } catch (e) {
+      setPasswordError('网络错误，请确认 NapCat 已启动');
+    } finally {
+      setPasswordLogging(false);
+    }
+  }, [qqUin, qqPassword]);
+
+  // 登录状态轮询
+  useEffect(() => {
+    if (!polling) return;
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch('/api/login/status');
+        const data: LoginStatus = await res.json();
+        setLoginStatus(data);
+        if (data.status === 'logged_in') {
+          setPolling(false);
+          clearInterval(interval);
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    }, 2000);
+    return () => clearInterval(interval);
+  }, [polling]);
+
+  // 检测扫码失败/取消 → 自动刷新二维码
+  useEffect(() => {
+    const prev = prevStatusRef.current;
+    const curr = loginStatus.status;
+    prevStatusRef.current = curr;
+
+    if (prev === 'scanned' && curr === 'waiting_scan') {
+      fetchQrCode();
+      return;
+    }
+
+    if (curr === 'waiting_scan' && !qrCode) {
+      fetchQrCode();
+    }
+  }, [loginStatus.status, qrCode, fetchQrCode]);
+
+  // 登录成功跳转（ws_config_fixed 时不跳转，等重启）
+  useEffect(() => {
+    if (loginStatus.status === 'logged_in' && !loginStatus.ws_config_fixed) {
+      const t = setTimeout(() => navigate('/'), 1200);
+      return () => clearTimeout(t);
+    }
+  }, [loginStatus.status, loginStatus.ws_config_fixed, navigate]);
+
+  // 初始化：加载配置 + 获取 QR
+  useEffect(() => {
+    fetch('/api/config').then(r => r.json()).then(data => {
+      if (data.llm_base_url) setBaseUrl(data.llm_base_url);
+      if (data.llm_model) setModel(data.llm_model);
+      if (data.configured) setConfigSaved(true);
+      if (data.mothership_url) setMothershipUrl(data.mothership_url);
+      if (data.node_name) setNodeName(data.node_name);
+    }).catch(() => {});
+    fetchQrCode();
+  }, [fetchQrCode]);
+
+  // QR 定时刷新：每 10 秒换一个新码
+  useEffect(() => {
+    if (loginMethod !== 'qr') return;
+    if (loginStatus.status === 'logged_in' || loginStatus.status === 'offline') return;
+    const iv = setInterval(() => fetchQrCode(), 10000);
+    return () => clearInterval(iv);
+  }, [loginStatus.status, fetchQrCode, loginMethod]);
+
+  const statusText = () => {
+    if (loginStatus.status === 'logged_in' && loginStatus.ws_config_fixed) {
+      return <span style={{ color: 'var(--neon-orange)' }} className="flex items-center gap-2 justify-center">
+        <AlertCircle size={14} /> 登录成功，但消息通道未就绪
+      </span>;
+    }
+    switch (loginStatus.status) {
+      case 'idle':        return <span style={{ color: 'var(--text-secondary)' }}>{loginMethod === 'qr' ? '正在获取二维码...' : '请填写账号密码'}</span>;
+      case 'waiting_scan':return <span style={{ color: 'var(--neon-cyan)' }}>{loginMethod === 'qr' ? '请使用 QQ 扫描二维码' : '等待登录验证...'}</span>;
+      case 'scanned':     return <span style={{ color: 'var(--neon-green)' }}>已扫码，请在手机上确认</span>;
+      case 'logged_in':   return <span style={{ color: 'var(--neon-cyan)' }} className="flex items-center gap-2 justify-center"><CheckCircle size={14} /> 登录成功 — {loginStatus.nickname}</span>;
+      case 'offline':     return <span style={{ color: 'var(--neon-orange)' }}>等待连接 NapCat 引擎...</span>;
+    }
+  };
+
+  const inputStyle: React.CSSProperties = {
+    background: 'rgba(255,255,255,0.04)',
+    border: '1px solid var(--border)',
+    color: 'var(--text-primary)',
+  };
+
+  const tabStyle = (active: boolean): React.CSSProperties => ({
+    background: active ? 'rgba(0, 242, 255, 0.12)' : 'transparent',
+    color: active ? 'var(--neon-cyan)' : 'var(--text-secondary)',
+    border: active ? '1px solid rgba(0, 242, 255, 0.25)' : '1px solid transparent',
+    cursor: 'pointer',
+  });
+
+  return (
+    <div className="min-h-screen flex items-center justify-center p-6"
+         style={{ background: 'linear-gradient(180deg, #000000 0%, #050509 100%)' }}>
+
+      {/* 背景光晕 */}
+      <div className="fixed inset-0 pointer-events-none overflow-hidden">
+        <div className="absolute top-1/3 left-1/5 w-[500px] h-[500px] rounded-full opacity-[0.04]"
+             style={{ background: 'radial-gradient(circle, #00F2FF, transparent)' }} />
+        <div className="absolute bottom-1/4 right-1/5 w-[400px] h-[400px] rounded-full opacity-[0.03]"
+             style={{ background: 'radial-gradient(circle, #BB00FF, transparent)' }} />
+      </div>
+
+      <div className="relative w-full max-w-5xl animate-fade-in">
+
+        {/* 标题 */}
+        <div className="text-center mb-10">
+          <div className="inline-flex items-center gap-3 mb-3">
+            <div className="w-9 h-9 rounded-lg flex items-center justify-center"
+                 style={{ background: 'rgba(0, 242, 255, 0.1)', border: '1px solid rgba(0, 242, 255, 0.2)' }}>
+              <Zap size={18} style={{ color: 'var(--neon-cyan)' }} />
+            </div>
+            <h1 className="text-2xl font-bold tracking-tight" style={{ color: 'var(--text-primary)' }}>
+              AI 社群情报控制台
+            </h1>
+          </div>
+          <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+            配置 LLM · 登录 QQ · 启动情报引擎
+          </p>
+        </div>
+
+        {/* 双栏 */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+          {/* 左栏：配置 */}
+          <div className="glass rounded-2xl p-7">
+            <div className="flex items-center gap-2.5 mb-6">
+              <div className="w-7 h-7 rounded-md flex items-center justify-center"
+                   style={{ background: 'rgba(0, 242, 255, 0.1)' }}>
+                <Key size={14} style={{ color: 'var(--neon-cyan)' }} />
+              </div>
+              <h2 className="text-base font-semibold" style={{ color: 'var(--text-primary)' }}>
+                LLM 接入配置
+              </h2>
+            </div>
+
+            <div className="mb-4">
+              <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--text-secondary)' }}>API Key</label>
+              <input type="password" value={apiKey} onChange={e => { setApiKey(e.target.value); setConfigSaved(false); }}
+                placeholder="sk-xxxxxxxx" className="w-full px-3.5 py-2.5 rounded-lg text-sm outline-none transition-colors"
+                style={inputStyle}
+                onFocus={e => e.target.style.borderColor = 'rgba(0, 242, 255, 0.3)'}
+                onBlur={e => e.target.style.borderColor = 'var(--border)'} />
+            </div>
+
+            <div className="mb-4">
+              <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--text-secondary)' }}>Base URL</label>
+              <input type="text" value={baseUrl} onChange={e => { setBaseUrl(e.target.value); setConfigSaved(false); }}
+                placeholder="https://api.openai.com/v1" className="w-full px-3.5 py-2.5 rounded-lg text-sm outline-none transition-colors"
+                style={inputStyle}
+                onFocus={e => e.target.style.borderColor = 'rgba(0, 242, 255, 0.3)'}
+                onBlur={e => e.target.style.borderColor = 'var(--border)'} />
+            </div>
+
+            <div className="mb-5">
+              <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--text-secondary)' }}>Model</label>
+              <input type="text" value={model} onChange={e => { setModel(e.target.value); setConfigSaved(false); }}
+                placeholder="gpt-4o-mini" className="w-full px-3.5 py-2.5 rounded-lg text-sm outline-none transition-colors"
+                style={inputStyle}
+                onFocus={e => e.target.style.borderColor = 'rgba(0, 242, 255, 0.3)'}
+                onBlur={e => e.target.style.borderColor = 'var(--border)'} />
+            </div>
+
+            <div className="mb-4">
+              <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--text-secondary)' }}>母舰地址 <span className="opacity-50">(可选)</span></label>
+              <input type="text" value={mothershipUrl} onChange={e => { setMothershipUrl(e.target.value); setConfigSaved(false); }}
+                placeholder="https://your-app.vercel.app" className="w-full px-3.5 py-2.5 rounded-lg text-sm outline-none transition-colors"
+                style={inputStyle}
+                onFocus={e => e.target.style.borderColor = 'rgba(0, 242, 255, 0.3)'}
+                onBlur={e => e.target.style.borderColor = 'var(--border)'} />
+            </div>
+
+            <div className="mb-5">
+              <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--text-secondary)' }}>节点名称 <span className="opacity-50">(可选)</span></label>
+              <input type="text" value={nodeName} onChange={e => { setNodeName(e.target.value); setConfigSaved(false); }}
+                placeholder="my-node" className="w-full px-3.5 py-2.5 rounded-lg text-sm outline-none transition-colors"
+                style={inputStyle}
+                onFocus={e => e.target.style.borderColor = 'rgba(0, 242, 255, 0.3)'}
+                onBlur={e => e.target.style.borderColor = 'var(--border)'} />
+            </div>
+
+            <button onClick={handleSaveConfig} disabled={!apiKey.trim() || saving}
+              className="w-full py-2.5 rounded-lg text-sm font-medium transition-all duration-200 flex items-center justify-center gap-2"
+              style={{
+                background: configSaved ? 'rgba(0, 242, 255, 0.08)' : 'rgba(0, 242, 255, 0.15)',
+                color: 'var(--neon-cyan)',
+                border: `1px solid ${configSaved ? 'rgba(0,242,255,0.2)' : 'rgba(0,242,255,0.3)'}`,
+                opacity: (!apiKey.trim() || saving) ? 0.4 : 1,
+                cursor: (!apiKey.trim() || saving) ? 'not-allowed' : 'pointer',
+              }}>
+              {saving ? <><Loader2 size={14} className="animate-spin" /> 保存中</>
+               : configSaved ? <><CheckCircle size={14} /> 已保存</>
+               : '保存配置'}
+            </button>
+
+            <div className="mt-4 px-3 py-2.5 rounded-lg text-xs flex items-start gap-2"
+                 style={{ background: 'rgba(0, 242, 255, 0.04)', border: '1px solid rgba(0, 242, 255, 0.08)', color: 'var(--text-secondary)' }}>
+              <AlertCircle size={13} className="mt-0.5 shrink-0" style={{ color: 'var(--neon-cyan)' }} />
+              <span>BYOK 模式 — Key 仅存本地 config.yaml，不上传任何服务器。兼容 OpenAI / Claude / DeepSeek。母舰地址用于将采集数据同步到云端。</span>
+            </div>
+          </div>
+
+          {/* 右栏：QQ 登录（扫码 + 密码） */}
+          <div className="glass rounded-2xl p-7 flex flex-col">
+            <div className="flex items-center gap-2.5 mb-4">
+              <div className="w-7 h-7 rounded-md flex items-center justify-center"
+                   style={{ background: 'rgba(0, 242, 255, 0.1)' }}>
+                <QrCode size={14} style={{ color: 'var(--neon-cyan)' }} />
+              </div>
+              <h2 className="text-base font-semibold" style={{ color: 'var(--text-primary)' }}>
+                QQ 登录
+              </h2>
+            </div>
+
+            {/* 登录平台选择 */}
+            <div className="mb-4">
+              <p className="text-xs font-medium mb-2" style={{ color: 'var(--text-secondary)' }}>登录平台</p>
+              <div className="grid grid-cols-3 gap-2">
+                {PLATFORMS.map(p => {
+                  const Icon = p.icon;
+                  const active = platform === p.key;
+                  return (
+                    <button key={p.key}
+                      onClick={() => {
+                        setPlatform(p.key);
+                        try { localStorage.setItem('loginPlatform', p.key); } catch {}
+                        fetch('/api/login/platform', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ platform: p.key }),
+                        }).catch(() => {});
+                      }}
+                      className="flex flex-col items-center gap-1 py-2 rounded-lg transition-all text-xs"
+                      style={{
+                        background: active ? 'rgba(0,242,255,0.08)' : 'transparent',
+                        border: active ? '1px solid rgba(0,242,255,0.25)' : '1px solid var(--border)',
+                        color: active ? 'var(--neon-cyan)' : 'var(--text-dim)',
+                      }}>
+                      <Icon size={14} />
+                      <span>{p.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="text-[10px] mt-1.5 text-center" style={{ color: 'var(--text-dim)' }}>
+                {platform === 'Windows' ? '⚠ 会挤掉电脑端 QQ，不推荐' : '✓ 可与电脑端 QQ 同时在线'}
+              </p>
+            </div>
+
+            {/* 登录方式切换标签 */}
+            <div className="flex gap-2 mb-5">
+              <button
+                onClick={() => { setLoginMethod('qr'); setPasswordError(''); setPasswordSuccess(''); }}
+                className="flex-1 py-2 rounded-lg text-xs font-medium transition-all duration-200 flex items-center justify-center gap-1.5"
+                style={tabStyle(loginMethod === 'qr')}
+              >
+                <QrCode size={13} /> 扫码登录
+              </button>
+              <button
+                onClick={() => { setLoginMethod('password'); setPasswordError(''); setPasswordSuccess(''); }}
+                className="flex-1 py-2 rounded-lg text-xs font-medium transition-all duration-200 flex items-center justify-center gap-1.5"
+                style={tabStyle(loginMethod === 'password')}
+              >
+                <LogIn size={13} /> 密码登录
+              </button>
+            </div>
+
+            {/* 扫码登录面板 */}
+            {loginMethod === 'qr' && (
+              <div className="flex-1 flex flex-col">
+                <div className="flex-1 flex items-center justify-center">
+                  {qrLoading ? (
+                    <div className="w-56 h-56 rounded-xl flex items-center justify-center" style={{ background: 'rgba(255,255,255,0.02)' }}>
+                      <Loader2 size={28} className="animate-spin" style={{ color: 'var(--neon-cyan)' }} />
+                    </div>
+                  ) : qrCode ? (
+                    <div className="relative">
+                      <div className="w-56 h-56 rounded-xl overflow-hidden p-3 flex items-center justify-center animate-pulse-glow-cyan"
+                           style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(0, 242, 255, 0.1)' }}>
+                        <img
+                          key={qrRefreshKey}
+                          src={qrFormat === 'url' ? qrCode : qrFormat === 'png' ? `data:image/png;base64,${qrCode}` : `data:image/svg+xml;base64,${qrCode}`}
+                          alt="QR" className="w-full h-full object-contain" />
+                      </div>
+                      {loginStatus.status === 'logged_in' && (
+                        <div className="absolute inset-0 rounded-xl flex items-center justify-center"
+                             style={{ background: 'rgba(0, 0, 0, 0.88)' }}>
+                          <div className="text-center animate-fade-in">
+                            <CheckCircle size={40} style={{ color: 'var(--neon-cyan)' }} className="mx-auto mb-2" />
+                            <p className="text-sm font-medium" style={{ color: 'var(--neon-cyan)' }}>登录成功</p>
+                            <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>{loginStatus.nickname}</p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="w-56 h-56 rounded-xl flex flex-col items-center justify-center gap-2"
+                         style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border)' }}>
+                      <QrCode size={36} style={{ color: 'var(--text-dim)' }} />
+                      <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>二维码加载失败</p>
+                      <button onClick={fetchQrCode} className="text-xs px-3 py-1 rounded-md"
+                              style={{ background: 'rgba(0,242,255,0.08)', color: 'var(--neon-cyan)', border: '1px solid rgba(0,242,255,0.15)' }}>
+                        重试
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {loginStatus.status !== 'idle' && loginStatus.status !== 'logged_in' && loginStatus.status !== 'offline' && (
+                  <button onClick={() => { fetch('/api/login/reset', { method: 'POST' }).then(() => { setLoginStatus({ status: 'idle' }); fetchQrCode(); }); }}
+                    className="mt-2 text-xs py-1.5" style={{ color: 'var(--text-secondary)' }}>
+                    重新获取
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* 密码登录面板 */}
+            {loginMethod === 'password' && (
+              <div className="flex-1 flex flex-col gap-4">
+                <div>
+                  <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--text-secondary)' }}>QQ 号</label>
+                  <input
+                    type="text"
+                    value={qqUin}
+                    onChange={e => { setQqUin(e.target.value); setPasswordError(''); }}
+                    placeholder="请输入 QQ 号"
+                    className="w-full px-3.5 py-2.5 rounded-lg text-sm outline-none transition-colors"
+                    style={inputStyle}
+                    onFocus={e => e.target.style.borderColor = 'rgba(0, 242, 255, 0.3)'}
+                    onBlur={e => e.target.style.borderColor = 'var(--border)'}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--text-secondary)' }}>密码</label>
+                  <div className="relative">
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      value={qqPassword}
+                      onChange={e => { setQqPassword(e.target.value); setPasswordError(''); }}
+                      placeholder="请输入 QQ 密码"
+                      className="w-full px-3.5 py-2.5 pr-10 rounded-lg text-sm outline-none transition-colors"
+                      style={inputStyle}
+                      onFocus={e => e.target.style.borderColor = 'rgba(0, 242, 255, 0.3)'}
+                      onBlur={e => e.target.style.borderColor = 'var(--border)'}
+                      onKeyDown={e => { if (e.key === 'Enter') handlePasswordLogin(); }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 opacity-50 hover:opacity-100 transition-opacity"
+                      style={{ color: 'var(--text-secondary)' }}
+                    >
+                      {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  </div>
+                </div>
+
+                {passwordError && (
+                  <div className="px-3 py-2 rounded-lg text-xs flex items-start gap-2"
+                       style={{ background: 'rgba(255, 80, 80, 0.06)', border: '1px solid rgba(255, 80, 80, 0.15)', color: '#ff6b6b' }}>
+                    <AlertCircle size={13} className="mt-0.5 shrink-0" />
+                    <span>{passwordError}</span>
+                  </div>
+                )}
+
+                {passwordSuccess && (
+                  <div className="px-3 py-2 rounded-lg text-xs flex items-start gap-2"
+                       style={{ background: 'rgba(0, 242, 255, 0.06)', border: '1px solid rgba(0, 242, 255, 0.15)', color: 'var(--neon-cyan)' }}>
+                    <CheckCircle size={13} className="mt-0.5 shrink-0" />
+                    <span>{passwordSuccess}</span>
+                  </div>
+                )}
+
+                <button
+                  onClick={handlePasswordLogin}
+                  disabled={!qqUin.trim() || !qqPassword.trim() || passwordLogging}
+                  className="w-full py-2.5 rounded-lg text-sm font-medium transition-all duration-200 flex items-center justify-center gap-2"
+                  style={{
+                    background: 'rgba(0, 242, 255, 0.15)',
+                    color: 'var(--neon-cyan)',
+                    border: '1px solid rgba(0, 242, 255, 0.3)',
+                    opacity: (!qqUin.trim() || !qqPassword.trim() || passwordLogging) ? 0.4 : 1,
+                    cursor: (!qqUin.trim() || !qqPassword.trim() || passwordLogging) ? 'not-allowed' : 'pointer',
+                  }}
+                >
+                  {passwordLogging ? <><Loader2 size={14} className="animate-spin" /> 登录中...</>
+                                   : <><LogIn size={14} /> 登录</>}
+                </button>
+
+                {/* 密码登录成功后也显示状态覆盖层 */}
+                {loginStatus.status === 'logged_in' && (
+                  <div className="flex-1 flex items-center justify-center mt-2">
+                    <div className="text-center animate-fade-in">
+                      <CheckCircle size={48} style={{ color: 'var(--neon-cyan)' }} className="mx-auto mb-3" />
+                      <p className="text-base font-medium" style={{ color: 'var(--neon-cyan)' }}>登录成功</p>
+                      <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>{loginStatus.nickname}</p>
+                    </div>
+                  </div>
+                )}
+
+                <div className="mt-auto px-3 py-2.5 rounded-lg text-xs flex items-start gap-2"
+                     style={{ background: 'rgba(255, 255, 255, 0.02)', border: '1px solid rgba(255, 255, 255, 0.05)', color: 'var(--text-secondary)' }}>
+                  <AlertCircle size={13} className="mt-0.5 shrink-0" style={{ color: 'var(--text-dim)' }} />
+                  <span>密码登录不会挤掉 PC 端 QQ。如遇人机验证，请改用扫码登录。</span>
+                </div>
+              </div>
+            )}
+
+            {/* 状态文本 */}
+            <div className="mt-4 text-center text-xs py-2.5 rounded-lg" style={{ background: 'rgba(255,255,255,0.02)' }}>
+              {statusText()}
+            </div>
+          </div>
+        </div>
+
+        {/* 底部 */}
+        <div className="mt-8 text-center">
+          {loginStatus.status === 'logged_in' && loginStatus.ws_config_fixed ? (
+            <div className="animate-fade-in">
+              <div className="inline-flex items-center gap-2 px-5 py-3 rounded-lg mb-3"
+                   style={{ background: 'rgba(255, 165, 0, 0.06)', border: '1px solid rgba(255, 165, 0, 0.15)' }}>
+                <Loader2 size={14} className="animate-spin" style={{ color: 'var(--neon-orange)' }} />
+                <span className="text-sm" style={{ color: 'var(--neon-orange)' }}>
+                  消息通道正在配置中，NapCat 正在自动重启…
+                </span>
+              </div>
+              <p className="text-xs mt-2" style={{ color: 'var(--text-secondary)' }}>
+                请等待约 10 秒后重新扫码登录，届时消息通道将自动就绪
+              </p>
+            </div>
+          ) : loginStatus.status === 'logged_in' ? (
+            <div className="animate-fade-in inline-flex items-center gap-2 px-5 py-2.5 rounded-lg"
+                 style={{ background: 'rgba(0, 242, 255, 0.06)', border: '1px solid rgba(0, 242, 255, 0.15)', color: 'var(--neon-cyan)' }}>
+              <Loader2 size={14} className="animate-spin" />
+              <span className="text-sm">正在进入控制台…</span>
+            </div>
+          ) : (
+            <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+              {!configSaved ? '可选：填写 API Key 配置 LLM' : '请完成 QQ 登录'}
+            </p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
