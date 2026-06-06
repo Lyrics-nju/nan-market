@@ -4,9 +4,9 @@
 
 你是否曾在 QQ 群里被 99+ 的消息淹没，翻了半天才找到一条重要通知？你是否因为错过群里的一条二手交易信息而懊恼？**AI 社群情报控制台**就是为了解决这个问题而生的——它自动监听你的 QQ 消息，用大语言模型把每条消息智能分类，让你一目了然地看到什么是重要的、什么是有趣的、什么是值得交易的。
 
-![登录界面1](dist_output_exe/AI_Console_EXE/1.png)
-![登录界面2](dist_output_exe/AI_Console_EXE/2.png)
-![主界面](dist_output_exe/AI_Console_EXE/3.png)
+![登录界面1](screenshots/1.png)
+![登录界面2](screenshots/2.png)
+![主界面](screenshots/3.png)
 
 ---
 
